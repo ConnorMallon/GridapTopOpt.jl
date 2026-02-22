@@ -69,7 +69,6 @@ struct ReverseNonlinearFEStateMap{A,B,C,D,E} <: AbstractFEStateMap
 end
 
 function ReverseNonlinearFEStateMap(res::Function,U,V,V_φ,V_diff;kwargs...)
-  println("nw")
   jac = (u,du,v,φh) -> Gridap.jacobian(res,[u,v,φh],1)
   ReverseNonlinearFEStateMap(res,jac,U,V,V_φ,V_diff;kwargs...)
 end
@@ -150,7 +149,7 @@ function dRdφ(φ_to_u::ReverseNonlinearFEStateMap,uh,vh,φh)
     _φh = FEFunction(V_diff, φ)
     sum(res(uh,vh,_φh))
   end                                                                    
-  return ReverseDiff.gradient(_res,φh.free_values)
+  return ReverseDiff.gradient(_res,get_free_dof_values(φh))
 end
 
 function update_adjoint_caches!(φ_to_u::ReverseNonlinearFEStateMap,uh,φh)

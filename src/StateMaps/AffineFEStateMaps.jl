@@ -97,7 +97,7 @@ function build_cache!(state_map::AffineFEStateMap,φh)
   K, b = get_matrix(op), get_vector(op)
   x  = allocate_in_domain(K); fill!(x,zero(eltype(x)))
   ns = numerical_setup(symbolic_setup(ls,K),K)
-  cache.fwd_cache = (ns,K,b,x,uhd,φh.free_values)
+  cache.fwd_cache = (ns,K,b,x,uhd,get_free_dof_values(φh))
 
   ## Adjoint cache
   adjoint_K  = assemble_matrix((u,v)->biform(v,u,φh),assem_adjoint,V,U)
@@ -142,7 +142,7 @@ function forward_solve!(φ_to_u::AffineFEStateMap,φh)
     build_cache!(φ_to_u,φh)
   end
   ns, K, b, x, _uhd, φ = φ_to_u.cache.fwd_cache
-  φ_to_u.cache.fwd_cache[6] .= φh.free_values
+  φ_to_u.cache.fwd_cache[6] .= get_free_dof_values(φh)
   φ_to_u.cache.adjoint_updated = false
 
   reassemble_matrix,_,_,precompute_uhd = φ_to_u.update_opts
@@ -167,7 +167,7 @@ function forward_solve!(φ_to_u::AffineFEStateMap,φ::AbstractVector)
   return forward_solve!(φ_to_u,φh)
 end
 
-function dRdφ(φ_to_u::AffineFEStateMap,uh,vh,φh)#uh::FEFunction,vh::FEFunction,φh::FEFunction)
+function dRdφ(φ_to_u::AffineFEStateMap,uh,vh,φh)
   biform, liform = φ_to_u.biform, φ_to_u.liform
   return ∇(biform,[uh,vh,φh],3) - ∇(liform,[vh,φh],2)
 end
