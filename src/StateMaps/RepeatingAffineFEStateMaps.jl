@@ -23,6 +23,7 @@ struct RepeatingAffineFEStateMap{N,A,B,C,D,E,F} <: AbstractFEStateMap
   assems     :: E
   cache      :: F
   ∂ϕ_ad_type :: Symbol
+  diff_order :: Int
 
   @doc """
       RepeatingAffineFEStateMap(
@@ -58,8 +59,14 @@ struct RepeatingAffineFEStateMap{N,A,B,C,D,E,F} <: AbstractFEStateMap
     assem_deriv = SparseMatrixAssembler(V_φ,V_φ),
     ls::LinearSolver = LUSolver(),
     adjoint_ls::LinearSolver = LUSolver(),
-    ∂ϕ_ad_type::Symbol = :monolithic)
+    ∂ϕ_ad_type::Symbol = :monolithic,
+    diff_order::Int = 1
+    )
     @check nblocks == length(liforms)
+    if diff_order != 1
+      @error "diff_order > 1 is currently not supported for RepeatingAffineFEStateMap. Defaulting to 1."
+      diff_order = 1
+    end
 
     U, V = repeat_spaces(nblocks,U0,V0)
     assem_U = SparseMatrixAssembler(
@@ -74,7 +81,7 @@ struct RepeatingAffineFEStateMap{N,A,B,C,D,E,F} <: AbstractFEStateMap
 
     A,B,C,D = typeof(biform), typeof(liforms), typeof(spaces), typeof(spaces_0)
     E,F = typeof(assems), typeof(cache)
-    return new{nblocks,A,B,C,D,E,F}(biform,liforms,spaces,spaces_0,assems,cache,∂ϕ_ad_type)
+    return new{nblocks,A,B,C,D,E,F}(biform,liforms,spaces,spaces_0,assems,cache,∂ϕ_ad_type,diff_order)
   end
 end
 

@@ -20,6 +20,7 @@ struct ReverseNonlinearFEStateMap{A,B,C,D,E} <: AbstractFEStateMap
   spaces      :: C
   assems      :: D
   cache       :: E
+  diff_order  :: Int
 
   @doc """
       ReverseNonlinearFEStateMap(
@@ -55,8 +56,14 @@ struct ReverseNonlinearFEStateMap{A,B,C,D,E} <: AbstractFEStateMap
     assem_deriv = SparseMatrixAssembler(V_φ,V_φ),
     nls::NonlinearSolver = NewtonSolver(LUSolver();maxiter=50,rtol=1.e-8,verbose=true),
     adjoint_ls::LinearSolver = LUSolver(),
-    adjoint_jac::Function = jac
+    adjoint_jac::Function = jac,
+    diff_order::Int = 1 
   )
+    if diff_order != 1
+      @error "diff_order > 1 is currently not supported for reverse mode differentiation. Defaulting to 1."
+      diff_order = 1
+    end
+    
     jacs = (jac,adjoint_jac)
     spaces = (U,V,V_φ,V_diff)
     assems = (;assem_U,assem_deriv,assem_adjoint)
@@ -64,7 +71,7 @@ struct ReverseNonlinearFEStateMap{A,B,C,D,E} <: AbstractFEStateMap
 
     A, B, C = typeof(res), typeof(jacs), typeof(spaces)
     D, E = typeof(assems), typeof(cache)
-    return new{A,B,C,D,E}(res,jacs,spaces,assems,cache)
+    return new{A,B,C,D,E}(res,jacs,spaces,assems,cache,diff_order)
   end
 end
 

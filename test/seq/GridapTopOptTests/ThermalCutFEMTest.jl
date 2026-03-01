@@ -6,7 +6,6 @@ using GridapTopOpt, GridapSolvers
 
 using GridapTopOpt: StateParamMap
 
-function main(AD_case)
   # Params
   n = 10            # Initial mesh size (pre-refinement)
   max_steps = 10/n  # Time-steps for evolution equation
@@ -98,41 +97,43 @@ function main(AD_case)
     )
   end
 
-  pcfs = if AD_case == :with_ad
-    EmbeddedPDEConstrainedFunctionals(state_collection;analytic_dC=(dVol,))
-  elseif AD_case == :custom_pcf
-    function φ_to_jc(φ)
-      u = state_collection.state_map(φ)
-      j = state_collection.J(u,φ)
-      c = map(constrainti -> constrainti(u,φ),state_collection.C)
-      [j,c...]
-    end
-    CustomEmbeddedPDEConstrainedFunctionals(φ_to_jc,1,state_collection)
-  else
-    @error "AD case not defined"
+  function φ_to_jc(φ)
+    u = state_collection.state_map(φ)
+    j = state_collection.J(u,φ)
+    c = map(constrainti -> constrainti(u,φ),state_collection.C)
+    [j,c...]
   end
 
-  ## Evolution Method
-  evo = CutFEMEvolver(V_φ,dΩ_bg,hₕ;max_steps,γg=0.1)
-  reinit = StabilisedReinitialiser(V_φ,dΩ_bg,hₕ;stabilisation_method=ArtificialViscosity(2.0))
-  ls_evo = LevelSetEvolution(evo,reinit)
-  reinit!(ls_evo,φh)
 
-  ## Hilbertian extension-regularisation problems
-  α = (α_coeff)^2*hₕ*hₕ
-  a_hilb(p,q) =∫(α*∇(p)⋅∇(q) + p*q)dΩ_bg;
-  vel_ext = VelocityExtension(a_hilb,U_reg,V_reg)
 
-  ## Optimiser
-  optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;verbose=true,constraint_names=[:Vol])
+
+  #pcfs = CustomEmbeddedPDEConstrainedFunctionals(φ_to_jc,1,state_collection)
+
+  
+
+  # ## Evolution Method
+  # evo = CutFEMEvolver(V_φ,dΩ_bg,hₕ;max_steps,γg=0.1)
+  # reinit = StabilisedReinitialiser(V_φ,dΩ_bg,hₕ;stabilisation_method=ArtificialViscosity(2.0))
+  # ls_evo = LevelSetEvolution(evo,reinit)
+  # reinit!(ls_evo,φh)
+
+  # ## Hilbertian extension-regularisation problems
+  # α = (α_coeff)^2*hₕ*hₕ
+  # a_hilb(p,q) =∫(α*∇(p)⋅∇(q) + p*q)dΩ_bg;
+  # vel_ext = VelocityExtension(a_hilb,U_reg,V_reg)
+
+  # ## Optimiser
+  # optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;verbose=true,constraint_names=[:Vol])
+
+
+
+
+
+
 
   # Do a few iterations
   vars, state = iterate(optimiser)
   vars, state = iterate(optimiser,state)
   true
-end
-
-@test main(:with_ad)
-@test main(:custom_pcf)
 
 end

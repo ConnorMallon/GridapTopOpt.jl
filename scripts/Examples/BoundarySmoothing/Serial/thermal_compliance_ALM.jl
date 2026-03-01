@@ -17,7 +17,7 @@ function main(path="./results/thermal_compliance_ALM/")
   prop_Γ_N = 0.2
   prop_Γ_D = 0.2
   dom = (0,xmax,0,ymax)
-  el_size = (200,200)
+  el_size = (50,50)
   γ = 0.1
   γ_reinit = 0.5
   max_steps = floor(Int,order*minimum(el_size)/10)
@@ -86,7 +86,7 @@ function main(path="./results/thermal_compliance_ALM/")
 
   ## Optimiser
   optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;
-    γ,verbose=true,constraint_names=[:Vol])
+    γ,verbose=true,constraint_names=[:Vol],maxiter=50)
   for (it,uh,φh) in optimiser
     data = ["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh]
     iszero(it % iter_mod) && writevtk(Ω,path*"out$it",cellfields=data)
