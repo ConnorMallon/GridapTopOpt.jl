@@ -7,7 +7,7 @@ using GridapTopOpt, GridapSolvers
 using GridapTopOpt: StateParamMap
 
   # Params
-  n = 10            # Initial mesh size (pre-refinement)
+  n = 4            # Initial mesh size (pre-refinement)
   max_steps = 10/n  # Time-steps for evolution equation
   vf = 0.3          # Volume fraction
   α_coeff = 2       # Regularisation coefficient extension-regularisation
@@ -75,12 +75,12 @@ using GridapTopOpt: StateParamMap
   ## Weak form
   γg = 0.1
   a(u,v,φ) = ∫(∇(v)⋅∇(u))Ωs.dΩin +
-    ∫((γg*mean(hₕ))*jump(Ωs.n_Γg⋅∇(v))*jump(Ωs.n_Γg⋅∇(u)))Ωs.dΓg +
+  #  ∫((γg*mean(hₕ))*jump(Ωs.n_Γg⋅∇(v))*jump(Ωs.n_Γg⋅∇(u)))Ωs.dΓg +
     ∫(Ωs.χ*v*u)Ωs.dΩin
   l(v,φ) = ∫(v)dΓ_N
 
   ## Optimisation functionals
-  J(u,φ) = ∫(∇(u)⋅∇(u))Ωs.dΩin
+  J(u,φ) = ∫(∇(u)⋅∇(u)+0*φ)Ωs.dΩin
   Vol(u,φ) = ∫(1/vol_D)Ωs.dΩin - ∫(vf/vol_D)dΩ_bg
   dVol(q,u,φ) = ∫(-1/vol_D*q/(abs(Ωs.n_Γ ⋅ ∇(φ))))Ωs.dΓ
 
@@ -89,51 +89,42 @@ using GridapTopOpt: StateParamMap
     update_collection!(Ωs,_φh)
     V = TestFESpace(Ωs.Ωact,reffe_scalar;dirichlet_tags=["Omega_D"])
     U = TrialFESpace(V,0.0)
-    state_map = AffineFEStateMap(a,l,U,V,V_φ)
+    state_map = AffineFEStateMap(a,l,U,V,V_φ,diff_order=2)
     (;
       :state_map => state_map,
-      :J => StateParamMap(J,state_map),
-      :C => map(Ci -> StateParamMap(Ci,state_map),[Vol,])
+      :J => StateParamMap(J,state_map,diff_order=2),
+      :C => map(Ci -> StateParamMap(Ci,state_map,diff_order=2),[Vol,])
     )
   end
+
+  state_collection.state_map(φh.free_values)
+
+  U = state_collection.state_map.spaces[2]
+  V = state_collection.state_map.spaces[3]
+
+  γg = 0.1
+  a(u,v,φ) = ∫(∇(v)⋅∇(u))Ωs.dΩin +
+    #∫((γg*mean(hₕ))*jump(Ωs.n_Γg⋅∇(v))*jump(Ωs.n_Γg⋅∇(u)))Ωs.dΓg +
+    ∫(Ωs.χ*v*u)Ωs.dΩin
+  l(v,φ) = ∫(v)dΓ_N
+
+  ∂R∂p = Gridap.jacobian(p->a(zero(U),get_fe_basis(V),p),φh)
+  assem_∂R∂p = SparseMatrixAssembler(V_φ,V)
+  ∂R∂p_mat = assemble_matrix(∂R∂p,assem_∂R∂p,V_φ,V)
 
   function φ_to_jc(φ)
     u = state_collection.state_map(φ)
     j = state_collection.J(u,φ)
     c = map(constrainti -> constrainti(u,φ),state_collection.C)
-    [j,c...]
+    j+0.5c[1]
   end
 
+  p = get_free_dof_values(φh)
+  ṗ = rand(length(p))
 
-
-
-  #pcfs = CustomEmbeddedPDEConstrainedFunctionals(φ_to_jc,1,state_collection)
+  φ_to_jc(p)
+  Hvp(φ_to_jc,p,ṗ)
 
   
-
-  # ## Evolution Method
-  # evo = CutFEMEvolver(V_φ,dΩ_bg,hₕ;max_steps,γg=0.1)
-  # reinit = StabilisedReinitialiser(V_φ,dΩ_bg,hₕ;stabilisation_method=ArtificialViscosity(2.0))
-  # ls_evo = LevelSetEvolution(evo,reinit)
-  # reinit!(ls_evo,φh)
-
-  # ## Hilbertian extension-regularisation problems
-  # α = (α_coeff)^2*hₕ*hₕ
-  # a_hilb(p,q) =∫(α*∇(p)⋅∇(q) + p*q)dΩ_bg;
-  # vel_ext = VelocityExtension(a_hilb,U_reg,V_reg)
-
-  # ## Optimiser
-  # optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;verbose=true,constraint_names=[:Vol])
-
-
-
-
-
-
-
-  # Do a few iterations
-  vars, state = iterate(optimiser)
-  vars, state = iterate(optimiser,state)
-  true
 
 end
