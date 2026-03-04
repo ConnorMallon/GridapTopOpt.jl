@@ -14,7 +14,7 @@ max_steps = floor(Int,order*minimum(el_size)/10)
 tol = 1/(5*order^2)/minimum(el_size)
 κ = 1
 vf = 0.4
-η_coeff = 2
+η_coeff = 5 #2
 α_coeff = 4max_steps*γ
 
 ## FE Setup
@@ -49,7 +49,7 @@ U_reg = TrialFESpace(V_reg,0)
 interp = SmoothErsatzMaterialInterpolation(η = η_coeff*maximum(el_Δ))
 I,H,DH,ρ = interp.I,interp.H,interp.DH,interp.ρ
 
-αf = 10α_coeff*maximum(el_Δ)
+αf = 2α_coeff*maximum(el_Δ)
 af(p,q,φ) =∫(αf^2*∇(p)⋅∇(q) + p*q)dΩ;
 lf(q,φ) = ∫(q*φ)dΩ;
 
@@ -100,7 +100,7 @@ pcfs = CustomPDEConstrainedFunctionals(φ_to_jc_no_filter,0;state_map)
 
 ## Optimiser
 ## Hilbertian extension-regularisation problems
-α = 0α_coeff*maximum(el_Δ)
+α = α_coeff*maximum(el_Δ)
 a_hilb(p,q) =∫(α^2*∇(p)⋅∇(q) + p*q)dΩ;
 vel_ext = VelocityExtension(a_hilb,U_reg,V_reg)
 
@@ -132,7 +132,15 @@ for γ in [0.1,0.25,0.5,0.53]
   push!(jss,js)
 end
 
-  #p = plot(x=1:length(js),y=js,type="scatter", mode="lines+markers") 
+  p = plot(x=1:length(jss[1]),y=jss[3],type="scatter", mode="lines+markers") 
+
+  φh = interpolate(initial_lsf(4,0.2),V_φ)
+
+  φ_to_jc(φh.free_values)
+
+  φhf = FEFunction(V_φ,filter(φh))
+
+  writevtk(Ω,"tmp5",cellfields=["φ"=>φh,"H(φ)"=>(H ∘ φh),"φhf"=>φhf,"Hφf"=>H ∘ φhf,"|∇(φ)|"=>(norm ∘ ∇(φh)),"|∇(φhf)|"=>(norm ∘ ∇(φhf))])
 
 
 using ForwardDiff, Zygote
@@ -142,77 +150,16 @@ using LinearMaps
 using LineSearches
 using PlotlyLight
 
-# p0 = φh.free_values
-
-# function Hṗ_int(Hṗ_p_v)
-#   Hpₕ = FEFunction(V_φ,Hṗ_p_v)
-#   l(v) = ∫(v*Hpₕ)dΩ
-#   assemble_vector(l,V_φ)
-# end
-# A(p) = LinearMap((v)->Hṗ_int(Hṗ(p,v)),length(p),length(p))
-
-# a(u,v) = ∫( 0.001*u*v + 0.01* ∇(u)⋅∇(v) )dΩ
-# assem = SparseMatrixAssembler(V_φ,V_φ)
-# S = assemble_matrix(a,assem,V_φ,V_φ)
-
-# function b(g)
-#   gdh = FEFunction(V_φ,g)
-#   l(v) = ∫( v*gdh )dΩ
-#   assemble_vector(l,V_φ )
-# end
-
-# g0 = G(p0)
-# x,stats = minares(A(p0)+S,b(g0),verbose=1,itmax=300)
-
-# ff,gg = Zygote.withgradient(p->φ_to_jc(p)[1],p0)
-# gg[1]
-# ff
-
-# φh = interpolate(initial_lsf(4,0.2),V_φ)
-
-# function my_gd(f,p0;maxiter=10)
-#   p = copy(p0)
-#   for i in 1:maxiter
-#     f, g = Zygote.withgradient(p->φ_to_jc(p)[1],p)
-#     push!(jsc,f)
-#     println("Iter $i: f = $f")
-#     H⁻¹g,stats = cg(A(p)+S,b(g[1]),verbose=1,itmax=300,radius=0.1)
-#     p -= H⁻¹g
-#   end
-#   p
-# end
-# my_gd(φ_to_jc,φh.free_values,maxiter=40)
-
-# #p = plot(x=1:length(js),y=js.+cs,type="scatter", mode="lines+markers") 
-# p = plot(x=1:length(jsc),y=jsc,type="scatter", mode="lines+markers") 
-
-# writevtk(Ω,"jsc",cellfields=["φ"=>FEFunction(V_φ,result.minimizer),"H(φ)"=>(H ∘ FEFunction(V_φ,result.minimizer)),"|∇(φ)|"=>(norm ∘ ∇(FEFunction(V_φ,result.minimizer)))])
-
-
-
-
-
-
-
-
-
-
 function F(p)
   φ_to_jc(p)[1]
 end
-
+@show F(φh.free_values)
 φh = interpolate(initial_lsf(4,0.2),V_φ)
 p = φh.free_values
-
-
-F(p)
 G(p) = Zygote.gradient(F,p)[1]
-
-objective(state_map(p),p)
-
+ṗ = G(p)
 Hṗ(p,ṗ) = ForwardDiff.derivative(α -> G(p + α*ṗ), 0)
 Hṗ(p,ṗ)
-
 
 # Test on actual optimization problems
 function f(x::Vector)
@@ -233,8 +180,8 @@ end
 
 d = Optim.TwiceDifferentiableHV(f,fg!,hv!,p)
 result = Optim.optimize(d, p, Optim.KrylovTrustRegion(
-                                        initial_radius = 0.6,
-                                        cg_tol = 0.0001,
+                                        initial_radius = 1.0,
+                                        cg_tol = 0.01,
                                        #eta = 0.2
                                   
                                 ),
