@@ -74,50 +74,66 @@ objective = GridapTopOpt.StateParamMap(J,state_map,diff_order=2)
 constraint = GridapTopOpt.StateParamMap(Vol,state_map,diff_order=2)
 #pcfs =  PDEConstrainedFunctionals(J,[Vol],state_map)
 
-## Hilbertian extension-regularisation problems
-α = α_coeff*maximum(el_Δ)
-a_hilb(p,q) =∫( p*q)dΩ;
-vel_ext = VelocityExtension(a_hilb,U_reg,V_reg)
+# ## Hilbertian extension-regularisation problems
+# α = α_coeff*maximum(el_Δ)
+# a_hilb(p,q) =∫( p*q)dΩ;
+# vel_ext = VelocityExtension(a_hilb,U_reg,V_reg)
 
 function φ_to_jc(_φ)
   φ = filter(_φ)
+  #φ = _φ
   u = state_map(φ)
   j = objective(u,φ) 
   c = constraint(u,φ)
   [j+c]
 end
 
-pcfs = CustomPDEConstrainedFunctionals(φ_to_jc,0;state_map)
+function φ_to_jc_no_filter(_φ)
+  φ = _φ
+  u = state_map(φ)
+  j = objective(u,φ) 
+  c = constraint(u,φ)
+  [j+c]
+end
+
+pcfs = CustomPDEConstrainedFunctionals(φ_to_jc_no_filter,0;state_map)
 
 ## Optimiser
+## Hilbertian extension-regularisation problems
+α = 0α_coeff*maximum(el_Δ)
+a_hilb(p,q) =∫(α^2*∇(p)⋅∇(q) + p*q)dΩ;
+vel_ext = VelocityExtension(a_hilb,U_reg,V_reg)
+
 optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;
   γ,verbose=true,constraint_names=[])
 
-# # Do a few iterations
-# vars, state = iterate(optimiser)
-# vars, state = iterate(optimiser,state)
 
-# ## Optimiser
-# iter_mod = 10
-# js=Float64[]
-# cs=Float64[]
-# path = "/home/mallon2/Documents/GridapTopOpt.jl/results/"
-# optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;
-#   γ,verbose=true,constraint_names=[],maxiter=100)
-# for (it,uh,φh) in optimiser
-#   j = objective(uh,φh)
-#   c = constraint(uh,φh)
-#   push!(js,j)
-#   push!(cs,c)
-#   data = ["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh]
-#   iszero(it % iter_mod) && writevtk(Ω,path*"out$it",cellfields=data)
-#   #write_history(path*"/history.txt",optimiser.history)
-# end
-# it = get_history(optimiser).niter; uh = get_state(pcfs)
-# #writevtk(Ω,path*"out$it",cellfields=["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh])
+## Optimiser
+i=0
+iter_mod = 1
+jss=Vector{Float64}[]
+#cs=Float64[]
+path = "/home/mallon2/Documents/GridapTopOpt.jl/results/"
 
-# p = plot(x=1:length(js),y=js,type="scatter", mode="lines+markers") 
-# p2 = plot(x=1:length(cs),y=cs,type="scatter", mode="lines+markers")
+for γ in [0.1,0.25,0.5,0.53]
+  i += 1
+  js = Float64[]
+  φh = interpolate(initial_lsf(4,0.2),V_φ)
+
+  optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;
+    γ=γ,verbose=true,constraint_names=[],maxiter=20)
+  for (it,uh,φh) in optimiser
+    push!(js,φ_to_jc_no_filter(φh.free_values)[1])
+    data = ["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh]
+    iszero(it % iter_mod) && writevtk(Ω,path*"out$it",cellfields=data)
+  end
+  it = get_history(optimiser).niter; uh = get_state(pcfs)
+  #writevtk(Ω,"tmp5",cellfields=["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh])
+  push!(jss,js)
+end
+
+  #p = plot(x=1:length(js),y=js,type="scatter", mode="lines+markers") 
+
 
 using ForwardDiff, Zygote
 using Optim
@@ -125,7 +141,6 @@ using Krylov
 using LinearMaps
 using LineSearches
 using PlotlyLight
-
 
 # p0 = φh.free_values
 
@@ -149,7 +164,6 @@ using PlotlyLight
 # g0 = G(p0)
 # x,stats = minares(A(p0)+S,b(g0),verbose=1,itmax=300)
 
-
 # ff,gg = Zygote.withgradient(p->φ_to_jc(p)[1],p0)
 # gg[1]
 # ff
@@ -169,14 +183,10 @@ using PlotlyLight
 # end
 # my_gd(φ_to_jc,φh.free_values,maxiter=40)
 
-
-
-
 # #p = plot(x=1:length(js),y=js.+cs,type="scatter", mode="lines+markers") 
 # p = plot(x=1:length(jsc),y=jsc,type="scatter", mode="lines+markers") 
 
 # writevtk(Ω,"jsc",cellfields=["φ"=>FEFunction(V_φ,result.minimizer),"H(φ)"=>(H ∘ FEFunction(V_φ,result.minimizer)),"|∇(φ)|"=>(norm ∘ ∇(FEFunction(V_φ,result.minimizer)))])
-
 
 
 
@@ -193,10 +203,16 @@ end
 
 φh = interpolate(initial_lsf(4,0.2),V_φ)
 p = φh.free_values
+
+
+F(p)
 G(p) = Zygote.gradient(F,p)[1]
-ṗ = G(p)
-Hṗ(p,ṗ) =  ForwardDiff.derivative(α -> G(p + α*ṗ), 0)
+
+objective(state_map(p),p)
+
+Hṗ(p,ṗ) = ForwardDiff.derivative(α -> G(p + α*ṗ), 0)
 Hṗ(p,ṗ)
+
 
 # Test on actual optimization problems
 function f(x::Vector)
@@ -217,16 +233,21 @@ end
 
 d = Optim.TwiceDifferentiableHV(f,fg!,hv!,p)
 result = Optim.optimize(d, p, Optim.KrylovTrustRegion(
-                                        initial_radius = 0.5,
-                                        cg_tol = 0.001
+                                        initial_radius = 0.6,
+                                        cg_tol = 0.0001,
+                                       #eta = 0.2
                                   
                                 ),
             Optim.Options(g_tol = 1e-12,
-                             iterations = 15,
+                             iterations = 10,
                              store_trace = true,
                               show_trace = true,
+                              #extended_trace = true
             ))
+
 sum(p- result.minimizer)
+
+
 
 val(result) = result.value
 jsc = val.(result.trace)
@@ -240,5 +261,68 @@ writevtk(Ω,"jsc",cellfields=["φ"=>FEFunction(V_φ,filter(result.minimizer)),"H
 
 
 
-# Can we solve the problem only on the surface ?
+
+
+
+
+y1 = jsc
+y2 = jss[1]
+y3 = jss[2]
+y4 = jss[3]
+y5 = jss[4]
+
+
+trace1 = Config(
+    x = 1:length(y1),
+    y = y1,
+    type = "scatter",
+    mode = "lines+markers",
+    name = "Newton-CG",
+)
+
+trace2 = Config(
+    x = 1:length(y2),
+    y = y2,
+    type = "scatter",
+    mode = "lines+markers",
+    name = "data 2",
+)
+
+trace3 = Config(
+    x = 1:length(y3),
+    y = y3,
+    type = "scatter",
+    mode = "lines+markers",
+    name = "data 3",
+)
+
+trace4 = Config(
+    x = 1:length(y4),
+    y = y4,
+    type = "scatter",
+    mode = "lines+markers",
+    name = "data 4",
+)
+
+trace5 = Config(
+    x = 1:length(y5),
+    y = y5,
+    type = "scatter",
+    mode = "lines+markers",
+    name = "data 5",
+)
+
+p = Plot(
+    [trace1, trace2, trace3, trace4, trace5],
+    Config(
+        title = Config(text = "Two datasets"),
+        xaxis = Config(title = Config(text = "x")),
+        yaxis = Config(title = Config(text = "y")),
+    ),
+)
+
+
+
+
+
 end
