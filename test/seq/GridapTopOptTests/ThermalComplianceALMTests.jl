@@ -147,7 +147,7 @@ V_φ = φh.fe_space
 #φh = interpolate(initial_lsf(4,0.2),V_φ)
 p0 = φh.free_values
 
-function optimise(η_coeff,p)
+#function optimise(η_coeff,p)
 
 	pcfs,_,_,_ = get_problem(η_coeff,α_factor)
 	φ_to_jc = 	 pcfs.φ_to_jc
@@ -161,6 +161,9 @@ function optimise(η_coeff,p)
 
 	# Test on actual optimization problems
 	function f(x::Vector)
+		#@show x 
+			#writevtk(Ω,"ji",cellfields=["φ"=>FEFunction(V_φ,filter(x)),"H(φ)"=>(H ∘ FEFunction(V_φ,filter(x)))])
+
 			F(x)
 	end
 
@@ -196,18 +199,23 @@ function optimise(η_coeff,p)
 
 	return result.minimizer,jsc
 
-end
+#end
 
 jscs = Vector{Float64}[]
-
 
 p=p0
 
 for η_coeff in [5,2,1]
+	global p = p
 	p,jsc = optimise(η_coeff,p)
 	push!(jscs,jsc)
 	@show sum(p)
 end
+
+
+
+
+
 
 
 
@@ -233,70 +241,70 @@ end
 
 # we have an adaptive SCALAR which you should only 
 
+jf = vcat(jscs...)
 
-
-p = plot(x=1:length(jsc),y=jsc,type="scatter", mode="lines+markers") 
+p = plot(x=1:length(jf),y=jf,type="scatter", mode="lines+markers") 
 writevtk(Ω,"jsc",cellfields=["φu"=>φh,"φ"=>FEFunction(V_φ,filter(result.minimizer)),"H(φ)"=>(H ∘ FEFunction(V_φ,filter(result.minimizer))),"|∇(φ)|"=>(norm ∘ ∇(FEFunction(V_φ,result.minimizer)))])
 
 #################
 # Combining Plots
 #################
 
-y1 = jsc
-y2 = jss[1]
-y3 = jss[2]
-y4 = jss[3]
-y5 = jss[4]
+# y1 = jsc
+# y2 = jss[1]
+# y3 = jss[2]
+# y4 = jss[3]
+# y5 = jss[4]
 
 
-trace1 = Config(
-    x = 1:length(y1),
-    y = y1,
-    type = "scatter",
-    mode = "lines+markers",
-    name = "Newton-CG",
-)
+# trace1 = Config(
+#     x = 1:length(y1),
+#     y = y1,
+#     type = "scatter",
+#     mode = "lines+markers",
+#     name = "Newton-CG",
+# )
 
-trace2 = Config(
-    x = 1:length(y2),
-    y = y2,
-    type = "scatter",
-    mode = "lines+markers",
-    name = "$(γs[1])",
-)
+# trace2 = Config(
+#     x = 1:length(y2),
+#     y = y2,
+#     type = "scatter",
+#     mode = "lines+markers",
+#     name = "$(γs[1])",
+# )
 
-trace3 = Config(
-    x = 1:length(y3),
-    y = y3,
-    type = "scatter",
-    mode = "lines+markers",
-    name = "$(γs[2])",
-)
+# trace3 = Config(
+#     x = 1:length(y3),
+#     y = y3,
+#     type = "scatter",
+#     mode = "lines+markers",
+#     name = "$(γs[2])",
+# )
 
-trace4 = Config(
-    x = 1:length(y4),
-    y = y4,
-    type = "scatter",
-    mode = "lines+markers",
-    name = "$(γs[3])",
-)
+# trace4 = Config(
+#     x = 1:length(y4),
+#     y = y4,
+#     type = "scatter",
+#     mode = "lines+markers",
+#     name = "$(γs[3])",
+# )
 
-trace5 = Config(
-    x = 1:length(y5),
-    y = y5,
-    type = "scatter",
-    mode = "lines+markers",
-    name = "$(γs[4])",
-)
+# trace5 = Config(
+#     x = 1:length(y5),
+#     y = y5,
+#     type = "scatter",
+#     mode = "lines+markers",
+#     name = "$(γs[4])",
+# )
 
-p = Plot(
-    [trace1, trace2, trace3, trace4, trace5],
-    Config(
-        title = Config(text = "Two datasets"),
-        xaxis = Config(title = Config(text = "x")),
-        yaxis = Config(title = Config(text = "y")),
-    ),
-)
+# p = Plot(
+#     [trace1, trace2, trace3, trace4, trace5],
+#     Config(
+#         title = Config(text = "Two datasets"),
+#         xaxis = Config(title = Config(text = "x")),
+#         yaxis = Config(title = Config(text = "y")),
+#     ),
+# )
 
 
 
