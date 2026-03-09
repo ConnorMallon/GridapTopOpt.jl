@@ -2,6 +2,13 @@ module ThermalComplianceALMTests
 
 using Gridap, GridapTopOpt
 
+using ForwardDiff, Zygote
+using Optim
+using Krylov
+using LinearMaps
+using LineSearches
+using PlotlyLight
+
 function get_problem(η_coeff,α_factor)
 	order = 1 
 	xmax = ymax = 1.0
@@ -97,7 +104,7 @@ end
 
 ### Getting the problem for the AL HJ benchmark
 η_coeff = 2
-α_factor = 0 # The filter works through the reg of g instead
+α_factor = 0 
 pcfs,ls_evo,vel_ext,φh = get_problem(η_coeff,α_factor)
 
 ## Optimiser
@@ -109,86 +116,124 @@ path = "/home/mallon2/Documents/GridapTopOpt.jl/results/"
 
 
 
-γs = [0.1,0.2,0.3,0.4]
+# γs = [0.1,0.2,0.3,0.4]
 
-for γ in γs
-  global i += 1
-  js = Float64[]
-	V_φ =  φh.fe_space
-  φh = interpolate(initial_lsf(4,0.2),V_φ)
+# for γ in γs
+#   global i += 1
+#   js = Float64[]
+# 	V_φ =  φh.fe_space
+#   φh = interpolate(initial_lsf(4,0.2),V_φ)
 
-  optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;
-    γ=γ,verbose=true,constraint_names=[],maxiter=20)
-  for (it,uh,φh) in optimiser
-    push!(js,φ_to_jc(φh.free_values)[1])
-    data = ["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh]
-    iszero(it % iter_mod) && writevtk(Ω,path*"out$it",cellfields=data)
-  end
-  it = get_history(optimiser).niter; uh = get_state(pcfs)
-  #writevtk(Ω,"tmp5",cellfields=["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh])
-  push!(jss,js)
-end
+#   optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;
+#     γ=γ,verbose=true,constraint_names=[],maxiter=20)
+#   for (it,uh,φh) in optimiser
+#     push!(js,φ_to_jc(φh.free_values)[1])
+#     data = ["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh]
+#     iszero(it % iter_mod) && writevtk(Ω,path*"out$it",cellfields=data)
+#   end
+#   it = get_history(optimiser).niter; uh = get_state(pcfs)
+#   #writevtk(Ω,"tmp5",cellfields=["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh])
+#   push!(jss,js)
+# end
 
 #p = plot(x=1:length(jss[1]),y=jss[1],type="scatter", mode="lines+markers") 
 #writevtk(Ω,"tmp5",cellfields=["φ"=>φh,"H(φ)"=>(H ∘ φh),"φhf"=>φhf,"Hφf"=>H ∘ φhf,"|∇(φ)|"=>(norm ∘ ∇(φh)),"|∇(φhf)|"=>(norm ∘ ∇(φhf))])
 
 ### Getting the problem for the AL HJ benchmark
 η_coeff = 5
-α_factor = 2 # The filter works through the reg of g instead
-pcfs,ls_evo,vel_ext,φh = get_problem(η_coeff,α_factor)
+α_factor = 2
 
-using ForwardDiff, Zygote
-using Optim
-using Krylov
-using LinearMaps
-using LineSearches
-using PlotlyLight
+V_φ = φh.fe_space	
+#φh = interpolate(initial_lsf(4,0.2),V_φ)
+p0 = φh.free_values
 
-function F(p)
-  φ_to_jc(p)[1]
+function optimise(η_coeff,p)
+
+	pcfs,_,_,_ = get_problem(η_coeff,α_factor)
+	φ_to_jc = 	 pcfs.φ_to_jc
+	function F(p)
+		φ_to_jc(p)[1]
+	end
+	G(p) = Zygote.gradient(F,p)[1]
+	ṗ = G(p)
+	Hṗ(p,ṗ) = ForwardDiff.derivative(α -> G(p + α*ṗ), 0)
+	# Hṗ(p,ṗ)
+
+	# Test on actual optimization problems
+	function f(x::Vector)
+			F(x)
+	end
+
+	function fg!(G,x)
+			copyto!(G, Zygote.gradient(F,x)[1])
+			F(x)
+	end
+
+	function hv!(Hv, x, v)
+			hv = Hṗ(x,v)
+			println("Hv running")
+			copyto!(Hv, hv)
+			Hv
+	end
+
+	d = Optim.TwiceDifferentiableHV(f,fg!,hv!,p)
+	result = Optim.optimize(d, p, Optim.KrylovTrustRegion(
+																					initial_radius = 1.0,
+																					cg_tol = 0.01,
+																				#eta = 0.2
+																		
+																	),
+							Optim.Options(g_tol = 1e-12,
+															iterations = 3,
+															store_trace = true,
+																show_trace = true,
+																#extended_trace = true
+							))
+
+	sum(p- result.minimizer)
+	val(result) = result.value
+	jsc = val.(result.trace)
+
+	return result.minimizer,jsc
+
 end
-@show F(φh.free_values)
-φh = interpolate(initial_lsf(4,0.2),V_φ)
-p = φh.free_values
-G(p) = Zygote.gradient(F,p)[1]
-ṗ = G(p)
-Hṗ(p,ṗ) = ForwardDiff.derivative(α -> G(p + α*ṗ), 0)
-Hṗ(p,ṗ)
 
-# Test on actual optimization problems
-function f(x::Vector)
-    F(x)
+jscs = Vector{Float64}[]
+
+
+p=p0
+
+for η_coeff in [5,2,1]
+	p,jsc = optimise(η_coeff,p)
+	push!(jscs,jsc)
+	@show sum(p)
 end
 
-function fg!(G,x)
-    copyto!(G, Zygote.gradient(F,x)[1])
-    F(x)
-end
 
-function hv!(Hv, x, v)
-    hv = Hṗ(x,v)
-    println("Hv running")
-    copyto!(Hv, hv)
-    Hv
-end
 
-d = Optim.TwiceDifferentiableHV(f,fg!,hv!,p)
-result = Optim.optimize(d, p, Optim.KrylovTrustRegion(
-                                        initial_radius = 1.0,
-                                        cg_tol = 0.01,
-                                       #eta = 0.2
-                                  
-                                ),
-            Optim.Options(g_tol = 1e-12,
-                             iterations = 10,
-                             store_trace = true,
-                              show_trace = true,
-                              #extended_trace = true
-            ))
+# take a step 
+# smooth out the real model 
 
-sum(p- result.minimizer)
-val(result) = result.value
-jsc = val.(result.trace)
+# 
+
+
+# Newton methods for Topology Optimisation
+
+# Trust region 
+# Quadratic model building surrogate...
+# Combined with deflation ? 
+# take cheaper steps ? 
+# Even space adpative smootheners ? 
+# Like in higher regions
+# What if we took these ALL to be hyperparameters...
+# And with an agentic workfow, figured out the best routines... 
+# We would HAVE to make quicker code...
+
+# I want you to etc.. 
+
+# we have an adaptive SCALAR which you should only 
+
+
 
 p = plot(x=1:length(jsc),y=jsc,type="scatter", mode="lines+markers") 
 writevtk(Ω,"jsc",cellfields=["φu"=>φh,"φ"=>FEFunction(V_φ,filter(result.minimizer)),"H(φ)"=>(H ∘ FEFunction(V_φ,filter(result.minimizer))),"|∇(φ)|"=>(norm ∘ ∇(FEFunction(V_φ,result.minimizer)))])
