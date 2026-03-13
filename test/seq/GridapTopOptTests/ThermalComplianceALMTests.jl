@@ -9,24 +9,17 @@ using LinearMaps
 using LineSearches
 using PlotlyLight
 
-function get_problem(η_coeff,α_factor)
-	order = 1 
+function create_model()
+
 	xmax = ymax = 1.0
 	prop_Γ_N = 0.2
 	prop_Γ_D = 0.2
 	dom = (0,xmax,0,ymax)
 	el_size = (30,30)
-	γ = 0.1
-	γ_reinit = 0.5
-	max_steps = floor(Int,order*minimum(el_size)/10)
-	tol = 1/(5*order^2)/minimum(el_size)
-	κ = 1
-	vf = 0.4
-	α_coeff = 4max_steps*γ
+	order = 1
 
 	## FE Setup
 	model = CartesianDiscreteModel(dom,el_size);
-	el_Δ = get_el_Δ(model)
 	f_Γ_D(x) = (x[1] ≈ 0.0 && (x[2] <= ymax*prop_Γ_D + eps() ||
 			x[2] >= ymax-ymax*prop_Γ_D - eps()))
 	f_Γ_N(x) = (x[1] ≈ xmax && ymax/2-ymax*prop_Γ_N/2 - eps() <= x[2] <=
@@ -49,6 +42,30 @@ function get_problem(η_coeff,α_factor)
 	V_reg = TestFESpace(model,reffe_scalar;dirichlet_tags=["Gamma_N"])
 	U_reg = TrialFESpace(V_reg,0)
 
+	spaces = (U,V,V_φ,V_reg,U_reg)
+	measures = (dΩ,dΓ_N,vol_D)
+	el_Δ = get_el_Δ(model)
+	params = (el_Δ,el_size,order)
+
+	spaces,measures,params #el_Δ,el_size,order
+end
+
+function get_problem(η_coeff,spaces,measures,params)
+
+	U,V,V_φ,V_reg,U_reg = spaces
+	dΩ,dΓ_N,vol_D = measures
+	el_Δ,el_size,order = params
+
+	model = get_background_model(get_triangulation(spaces[1]))
+	max_steps = floor(Int,minimum(el_size)/10)
+	tol = 1/(5*order^2)/minimum(el_size)
+	κ = 1
+	vf = 0.4
+	γ = 0.1
+	γ_reinit = 0.5
+	α_coeff = 4max_steps*γ
+	α_factor = 2
+
 	## Create FE functions
 	φh = interpolate(initial_lsf(4,0.2),V_φ)
 
@@ -60,7 +77,7 @@ function get_problem(η_coeff,α_factor)
 	af(p,q,φ) =∫(αf^2*∇(p)⋅∇(q) + p*q)dΩ;
 	lf(q,φ) = ∫(q*φ)dΩ;
 
-	a(u,v,φ) = ∫((I ∘ φ)*κ*∇(u)⋅∇(v))dΩ # + ∫( 0v )dΓ_N
+	a(u,v,φ) = ∫(I∘(φ)*κ*∇(u)⋅∇(v))dΩ # + ∫( 0v )dΓ_N
 	l(v,φ) = ∫(v)dΓ_N
 
 	## Optimisation functionals
@@ -82,8 +99,15 @@ function get_problem(η_coeff,α_factor)
 	#pcfs =  PDEConstrainedFunctionals(J,[Vol],state_map)
 
 	function φ_to_jc(_φ)
+		@show sum(_φ)
+		Zygote.ignore() do
+			φh = FEFunction(V_φ,_φ) 
+			reinit!(ls_evo,φh)
+			@show sum(_φ)
+			println("reinit done")
+		end
 		φ = filter(_φ)
-		u = state_map(φ)
+		u = state_map((φ))
 		j = objective(u,φ) 
 		c = constraint(u,φ)
 		[j+c]
@@ -101,61 +125,27 @@ function get_problem(η_coeff,α_factor)
 
 end
 
-
-### Getting the problem for the AL HJ benchmark
-η_coeff = 2
-α_factor = 0 
-pcfs,ls_evo,vel_ext,φh = get_problem(η_coeff,α_factor)
-
-## Optimiser
-i=0
-iter_mod = 1
-jss=Vector{Float64}[]
-#cs=Float64[]
-path = "/home/mallon2/Documents/GridapTopOpt.jl/results/"
+#function optimise(η_coeff,p,spaces,measures,params)
 
 
 
-# γs = [0.1,0.2,0.3,0.4]
 
-# for γ in γs
-#   global i += 1
-#   js = Float64[]
-# 	V_φ =  φh.fe_space
-#   φh = interpolate(initial_lsf(4,0.2),V_φ)
 
-#   optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;
-#     γ=γ,verbose=true,constraint_names=[],maxiter=20)
-#   for (it,uh,φh) in optimiser
-#     push!(js,φ_to_jc(φh.free_values)[1])
-#     data = ["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh]
-#     iszero(it % iter_mod) && writevtk(Ω,path*"out$it",cellfields=data)
-#   end
-#   it = get_history(optimiser).niter; uh = get_state(pcfs)
-#   #writevtk(Ω,"tmp5",cellfields=["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh])
-#   push!(jss,js)
-# end
+spaces,measures,params = create_model()
+p = interpolate(initial_lsf(4,0.2),spaces[3]).free_values
+jscs = Vector{Float64}[]
+ηs = [2]
 
-#p = plot(x=1:length(jss[1]),y=jss[1],type="scatter", mode="lines+markers") 
-#writevtk(Ω,"tmp5",cellfields=["φ"=>φh,"H(φ)"=>(H ∘ φh),"φhf"=>φhf,"Hφf"=>H ∘ φhf,"|∇(φ)|"=>(norm ∘ ∇(φh)),"|∇(φhf)|"=>(norm ∘ ∇(φhf))])
+η_coeff = last(ηs)
 
-### Getting the problem for the AL HJ benchmark
-η_coeff = 5
-α_factor = 2
 
-V_φ = φh.fe_space	
-#φh = interpolate(initial_lsf(4,0.2),V_φ)
-p0 = φh.free_values
-
-#function optimise(η_coeff,p)
-
-	pcfs,_,_,_ = get_problem(η_coeff,α_factor)
+	pcfs,_,_,_ = get_problem(η_coeff,spaces,measures,params)
 	φ_to_jc = 	 pcfs.φ_to_jc
 	function F(p)
 		φ_to_jc(p)[1]
 	end
 	G(p) = Zygote.gradient(F,p)[1]
-	ṗ = G(p)
+	p#̇ = G(p)
 	Hṗ(p,ṗ) = ForwardDiff.derivative(α -> G(p + α*ṗ), 0)
 	# Hṗ(p,ṗ)
 
@@ -183,14 +173,15 @@ p0 = φh.free_values
 	result = Optim.optimize(d, p, Optim.KrylovTrustRegion(
 																					initial_radius = 1.0,
 																					cg_tol = 0.01,
+																					#rho_upper = 0.85,
 																				#eta = 0.2
 																		
 																	),
 							Optim.Options(g_tol = 1e-12,
-															iterations = 3,
+															iterations = 20,
 															store_trace = true,
 																show_trace = true,
-																#extended_trace = true
+																extended_trace = true
 							))
 
 	sum(p- result.minimizer)
@@ -199,79 +190,95 @@ p0 = φh.free_values
 
 	return result.minimizer,jsc
 
-#end
+jf = jsc
 
-jscs = Vector{Float64}[]
 
-p=p0
+get_radius(x) = x.metadata["radius"]
+radii = get_radius.(result.trace)
 
-for η_coeff in [5,2,1]
-	global p = p
-	p,jsc = optimise(η_coeff,p)
-	push!(jscs,jsc)
-	@show sum(p)
+
+
+
+
+
+
+
+
+
+using NLSolversBase
+using LineSearches
+
+function g!(G,x)
+	value, grad = val_and_gradient(F,x)
+	copyto!(G, grad[1])
+	G
 end
 
+NLSolversBase.only_fg!(fg!)
 
+#d = Optim.TwiceDifferentiableHV(f,fg!,hv!,p)
+result = Optim.optimize(f,g!, p, GradientDescent(; alphaguess = LineSearches.InitialStatic(alpha= 3.0),#,scaled = true),
+                  linesearch = LineSearches.Static(),						
+																),
+						Optim.Options(g_tol = 1e-12,
+														iterations = 20,
+														store_trace = true,
+														show_trace = true,
+															#extended_trace = true
+						))
 
+jf2 = val.(result.trace)
 
+plot1 = plot(x=1:length(jf),y=jf,type="scatter", mode="lines+markers") 
+plot2 = plot(x=1:length(jf2),y=jf2,type="scatter", mode="lines+markers")
 
+V_φ = spaces[3]
 
+## Interpolation and weak form
+el_Δ = params[1]
+η_coeff = last(ηs)
+interp = SmoothErsatzMaterialInterpolation(η = η_coeff*maximum(el_Δ))
+I,H,DH,ρ = interp.I,interp.H,interp.DH,interp.ρ
 
+el_size = params[2]
+max_steps = floor(Int,minimum(el_size)/10)
+γ = 0.1
+α_coeff = 4max_steps*γ
+αf = 2 * α_coeff*maximum(el_Δ)
+dΩ = measures[1]
+af(p,q,φ) =∫(αf^2*∇(p)⋅∇(q) + p*q)dΩ;
+lf(q,φ) = ∫(q*φ)dΩ;
+filter = AffineFEStateMap(af,lf,V_φ,V_φ,V_φ)  
 
-# take a step 
-# smooth out the real model 
+pf = result.minimizer
+writevtk(get_triangulation(V_φ),"jsc",cellfields=["φ"=>FEFunction(V_φ,filter(pf)),"H(φ)"=>(H ∘ FEFunction(V_φ,filter(pf)))])
 
-# 
-
-
-# Newton methods for Topology Optimisation
-
-# Trust region 
-# Quadratic model building surrogate...
-# Combined with deflation ? 
-# take cheaper steps ? 
-# Even space adpative smootheners ? 
-# Like in higher regions
-# What if we took these ALL to be hyperparameters...
-# And with an agentic workfow, figured out the best routines... 
-# We would HAVE to make quicker code...
-
-# I want you to etc.. 
-
-# we have an adaptive SCALAR which you should only 
-
-jf = vcat(jscs...)
-
-p = plot(x=1:length(jf),y=jf,type="scatter", mode="lines+markers") 
-writevtk(Ω,"jsc",cellfields=["φu"=>φh,"φ"=>FEFunction(V_φ,filter(result.minimizer)),"H(φ)"=>(H ∘ FEFunction(V_φ,filter(result.minimizer))),"|∇(φ)|"=>(norm ∘ ∇(FEFunction(V_φ,result.minimizer)))])
-
-#################
+################
 # Combining Plots
-#################
+################
 
-# y1 = jsc
-# y2 = jss[1]
+y1 = jsc
+y2 = jf2
 # y3 = jss[2]
 # y4 = jss[3]
 # y5 = jss[4]
 
 
-# trace1 = Config(
-#     x = 1:length(y1),
-#     y = y1,
-#     type = "scatter",
-#     mode = "lines+markers",
-#     name = "Newton-CG",
-# )
+trace1 = Config(
+    x = 1:length(y1),
+    y = y1,
+    type = "scatter",
+    mode = "lines+markers",
+    name = "Newton-CG",
+)
 
-# trace2 = Config(
-#     x = 1:length(y2),
-#     y = y2,
-#     type = "scatter",
-#     mode = "lines+markers",
-#     name = "$(γs[1])",
-# )
+trace2 = Config(
+    x = 1:length(y2),
+    y = y2,
+    type = "scatter",
+    mode = "lines+markers",
+    name = "GD"#$(γs[1])",
+)
 
 # trace3 = Config(
 #     x = 1:length(y3),
@@ -297,14 +304,14 @@ writevtk(Ω,"jsc",cellfields=["φu"=>φh,"φ"=>FEFunction(V_φ,filter(result.min
 #     name = "$(γs[4])",
 # )
 
-# p = Plot(
-#     [trace1, trace2, trace3, trace4, trace5],
-#     Config(
-#         title = Config(text = "Two datasets"),
-#         xaxis = Config(title = Config(text = "x")),
-#         yaxis = Config(title = Config(text = "y")),
-#     ),
-# )
+plot3 = Plot(
+    [trace1, trace2],#, trace3, trace4, trace5],
+    Config(
+        title = Config(text = "Two datasets"),
+        xaxis = Config(title = Config(text = "x")),
+        yaxis = Config(title = Config(text = "y")),
+    ),
+)
 
 
 
