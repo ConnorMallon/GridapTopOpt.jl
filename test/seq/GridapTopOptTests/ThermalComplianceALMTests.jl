@@ -84,7 +84,14 @@ function get_problem(η_coeff,spaces,measures,params)
 	J(u,φ) = ∫((I ∘ φ)*κ*∇(u)⋅∇(u))dΩ + ∫(1e-3(DH ∘ φ))dΩ;
 	dJ(q,u,φ) = ∫(κ*∇(u)⋅∇(u)*q*(DH ∘ φ)*(norm ∘ ∇(φ)))dΩ;
 	Vol(u,φ) = ∫(((ρ ∘ φ) - vf+0*u)/vol_D)dΩ;
-	dVol(q,u,φ) = ∫(-1/vol_D*q*(DH ∘ φ)*(norm ∘ ∇(φ)))dΩ
+	dVol(q,u,φ) = ∫(-1/vol_D*q*(DH ∘ φ)*(norm ∘Precompiling VSCodeServer...
+  Progress [====================================>    ]  8/9
+  ◓ VSCodeServer
+
+
+
+
+ ∇(φ)))dΩ
 
 	## Finite difference solver and level set function
 	evo = FiniteDifferenceEvolver(FirstOrderStencil(2,Float64),model,V_φ;max_steps)
@@ -121,76 +128,42 @@ function get_problem(η_coeff,spaces,measures,params)
 	a_hilb(p,q) =∫(α^2*∇(p)⋅∇(q) + p*q)dΩ;
 	vel_ext = VelocityExtension(a_hilb,U_reg,V_reg)
 
-	pcfs,ls_evo,vel_ext,φh 
 
+# Trust region Newton-CG with Optim.jl
+function f(x)
+	φ_to_jc(p)[1]
 end
+function fg!(G,x)
+	value, grad = val_and_gradient(F,x)
+	copyto!(G, grad[1])
+	return value
+end
+function hv!(Hv, x, v)
+	hv = GridapTopOpt.Hpv(f,p,v) 
+	println("Hv running")
+	copyto!(Hv, hv)
+	Hv
+end
+d = Optim.TwiceDifferentiableHV(f,fg!,hv!,p)
+result = Optim.optimize(d, p, 
+												Optim.KrylovTrustRegion(
+																			initial_radius = 1.0,
+																			cg_tol = 0.01,
+																			#rho_upper = 0.85,
+																			#eta = 0.2
+																			),
+												Optim.Options(g_tol = 1e-12,
+																			iterations = 20,
+																			store_trace = true,
+																			show_trace = true,
+																			extended_trace = true
+																			))
 
-#function optimise(η_coeff,p,spaces,measures,params)
-
-
-
-
-
-spaces,measures,params = create_model()
-p = interpolate(initial_lsf(4,0.2),spaces[3]).free_values
-jscs = Vector{Float64}[]
-ηs = [2]
-
-η_coeff = last(ηs)
-
-
-	pcfs,_,_,_ = get_problem(η_coeff,spaces,measures,params)
-	φ_to_jc = 	 pcfs.φ_to_jc
-	function F(p)
-		φ_to_jc(p)[1]
-	end
-	G(p) = Zygote.gradient(F,p)[1]
-	p#̇ = G(p)
-	Hṗ(p,ṗ) = ForwardDiff.derivative(α -> G(p + α*ṗ), 0)
-	# Hṗ(p,ṗ)
-
-	# Test on actual optimization problems
-	function f(x::Vector)
-		#@show x 
-			#writevtk(Ω,"ji",cellfields=["φ"=>FEFunction(V_φ,filter(x)),"H(φ)"=>(H ∘ FEFunction(V_φ,filter(x)))])
-
-			F(x)
-	end
-
-	function fg!(G,x)
-			copyto!(G, Zygote.gradient(F,x)[1])
-			F(x)
-	end
-
-	function hv!(Hv, x, v)
-			hv = Hṗ(x,v)
-			println("Hv running")
-			copyto!(Hv, hv)
-			Hv
-	end
-
-	d = Optim.TwiceDifferentiableHV(f,fg!,hv!,p)
-	result = Optim.optimize(d, p, Optim.KrylovTrustRegion(
-																					initial_radius = 1.0,
-																					cg_tol = 0.01,
-																					#rho_upper = 0.85,
-																				#eta = 0.2
-																		
-																	),
-							Optim.Options(g_tol = 1e-12,
-															iterations = 20,
-															store_trace = true,
-																show_trace = true,
-																extended_trace = true
-							))
-
-	sum(p- result.minimizer)
-	val(result) = result.value
-	jsc = val.(result.trace)
-
-	return result.minimizer,jsc
-
+val(result) = result.value
+jsc = val.(result.trace)
 jf = jsc
+
+
 
 
 get_radius(x) = x.metadata["radius"]

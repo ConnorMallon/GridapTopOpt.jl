@@ -12,8 +12,9 @@ using Gridap, GridapTopOpt
 
   In this example κ(u) = κ0*(exp(ξ*u))
 """
-function main(path="./results/nonlinear_thermal_compliance_ALM/")
-  ## Parameters
+# function main(path="./results/nonlinear_thermal_compliance_ALM/")
+path="." 
+## Parameters
   order = 1
   xmax=ymax=1.0
   prop_Γ_N = 0.2
@@ -63,13 +64,13 @@ function main(path="./results/nonlinear_thermal_compliance_ALM/")
   I,H,DH,ρ = interp.I,interp.H,interp.DH,interp.ρ
 
   κ0 = 1
-  ξ = -1
-  κ(u) = κ0*(exp(ξ*u))
+  ξ = -1.5
+  κ(u) = κ0*(exp(ξ*(u)))
   res(u,v,φ) = ∫((I ∘ φ)*(κ ∘ u)*∇(u)⋅∇(v))dΩ - ∫(v)dΓ_N
 
   ## Optimisation functionals
   J(u,φ) = ∫((I ∘ φ)*(κ ∘ u)*∇(u)⋅∇(u))dΩ
-  Vol(u,φ) = ∫(((ρ ∘ φ) - vf)/vol_D)dΩ;
+  Vol(u,φ) = ∫(((ρ ∘ φ) - vf + 0*u)/vol_D)dΩ;
   dVol(q,u,φ) = ∫(-1/vol_D*q*(DH ∘ φ)*(norm ∘ ∇(φ)))dΩ
 
   ## Finite difference solver and level set function
@@ -88,7 +89,7 @@ function main(path="./results/nonlinear_thermal_compliance_ALM/")
 
   ## Optimiser
   optimiser = AugmentedLagrangian(pcfs,ls_evo,vel_ext,φh;
-    γ,verbose=true,constraint_names=[:Vol])
+    γ,verbose=true,constraint_names=[:Vol],maxiter=10)
   for (it, uh, φh) in optimiser
     data = ["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh]
     iszero(it % iter_mod) && writevtk(Ω,path*"out$it",cellfields=data)
@@ -96,6 +97,57 @@ function main(path="./results/nonlinear_thermal_compliance_ALM/")
   end
   it = get_history(optimiser).niter; uh = get_state(pcfs)
   writevtk(Ω,path*"out$it",cellfields=["φ"=>φh,"H(φ)"=>(H ∘ φh),"|∇(φ)|"=>(norm ∘ ∇(φh)),"uh"=>uh])
-end
+# end
 
-main()
+
+
+
+
+using Zygote, Optim
+filter = AffineFEStateMap( (u,v,p) -> a_hilb(u,v), (v,p)->∫(v*p)dΩ, V_φ, V_φ, V_φ,diff_order=2)
+state_map = NonlinearFEStateMap(res,U,V,V_φ,diff_order=2)
+objective = GridapTopOpt.StateParamMap(J,state_map,diff_order=2)
+constraint = GridapTopOpt.StateParamMap(Vol,state_map,diff_order=2)
+p = φh.free_values
+# Trust region Newton-CG with Optim.jl
+function f(x)
+  Zygote.ignore() do
+    if typeof(x) == typeof(p)
+      println("reinitialising")
+      φh = FEFunction(V_φ,x) 
+      reinit!(ls_evo,φh)
+    end
+  end
+  φ = filter(x)
+  u = state_map((φ))
+  j = objective(u,φ) 
+  c = constraint(u,φ)
+  return j+c
+end
+function fg!(G,x)
+	value, grad = val_and_gradient(f,x)
+	copyto!(G, grad[1])
+	return value
+end
+function hv!(Hv, x, v)
+	hv = Hvp(f,p,v) 
+	println("Hv running")
+	copyto!(Hv, hv)
+	Hv
+end
+d = Optim.TwiceDifferentiableHV(f,fg!,hv!,p)
+result = Optim.optimize(d, p, 
+												Optim.KrylovTrustRegion(
+																			initial_radius = 1.0,
+																			cg_tol = 0.01,
+																			#rho_upper = 0.85,
+																			#eta = 0.2
+																			),
+												Optim.Options(g_tol = 1e-12,
+																			iterations = 20,
+																			store_trace = true,
+																			show_trace = true,
+																			extended_trace = true
+																			))
+
+
