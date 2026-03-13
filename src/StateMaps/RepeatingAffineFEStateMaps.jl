@@ -60,8 +60,14 @@ struct RepeatingAffineFEStateMap{N,A,B,C,D,E,F} <: AbstractFEStateMap
     ls::LinearSolver = LUSolver(),
     adjoint_ls::LinearSolver = LUSolver(),
     ∂ϕ_ad_type::Symbol = :monolithic,
-    diff_order::Int = 1
-    )
+    diff_order = 1,
+  )
+
+    # Check that diff_order is 1 (second-order derivatives not supported)
+    if diff_order !=1
+      error("ReverseNonlinearFEStateMap only supports diff_order=1. Second-order derivatives are not supported.")
+    end
+
     @check nblocks == length(liforms)
     if diff_order != 1
       @error "diff_order > 1 is currently not supported for RepeatingAffineFEStateMap. Defaulting to 1."
@@ -262,6 +268,8 @@ function adjoint_solve!(φ_to_u::RepeatingAffineFEStateMap,du::AbstractBlockVect
   end
   return adjoint_x
 end
+
+get_diff_order(::RepeatingAffineFEStateMap) = Val(1)
 
 ## Backwards compat
 function RepeatingAffineFEStateMap(nblocks::Int,biform::Function,liforms::Vector{<:Function},

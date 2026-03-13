@@ -70,6 +70,9 @@ function incremental_adjoint_pullback(p_to_u,res,uᵋ,pᵋ::AbstractVector{Forwa
   du̇ = tangent_from_dual(duᵋ)  
 
   ## pullback the value  (solve the adjoint equation) - once per outer iteration
+  if !is_cache_built(p_to_u.cache) 
+    build_cache!(p_to_u,u,p)
+  end 
   if !bwd_pass_ran(p_to_u,p)
     @warn "You are not calling the backwards pass (state) before computing HVP's"
     _, dp_from_u = GridapTopOpt.pullback(p_to_u,u,p,du) # This will update λ, dp_from_u and the incremental adjoint partials - it would be better if these objects were returned so that we know they were updated 
